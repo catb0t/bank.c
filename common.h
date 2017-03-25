@@ -132,7 +132,7 @@
 
   #define report_dtor(obj) dbg_prn("\x1b[33;1mdtor \x1b[30;1m%s #%zu\x1b[0m\n", #obj, obj->uid)
 #else
-  #define report_ctor(obj) static size_t uid = 0; (obj)->uid = uid++
+  #define report_ctor(obj)
   #define report_dtor(obj)
 #endif
 
@@ -442,10 +442,12 @@ char* str_reverse (const char* const str) {
   if (!str) { return NULL; }
 
   size_t len = safestrnlen(str);
-  char* newp = (typeof(newp)) safemalloc( sizeof(char) * len );
 
-  size_t i;
-  for (i = 0; i < len; i++) {
+  printf("len: %zu\n", len);
+
+  char* newp = (typeof(newp)) safemalloc( sizeof(char) * (len) );
+
+  for (size_t i = 0; i < len; i++) {
     newp[i] = str[ udifference(i + 1, len) ];
   }
 

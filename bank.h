@@ -80,9 +80,10 @@ bankacct_t* bankacct_ctor (const char* const * const strdata, const uint16_t pin
 void        bankacct_dtor (bankacct_t* const bankacct);
 char*        bankacct_see (const bankacct_t* const bact);
 
-wallet_t* wallet_ctor (const char* name, const char* flags);
+wallet_t* wallet_ctor (const char* const name, const char* const flags, const uint16_t pin);
 void      wallet_dtor (wallet_t* const wallet);
-void     wallet_dtorn (wallet_t* * const ws, size_t len);
+void     wallet_dtorn (wallet_t* * const ws, const size_t len);
+char*      wallet_see (const wallet_t* const wlt);
 
 transactn_t transactn_ctor (const char* other_name, const u3id_t other, const uint64_t cred, const uint64_t debt);
 void        transactn_dtor (const transactn_t* transactn);
@@ -240,11 +241,42 @@ char* bankacct_see (const bankacct_t* const bact) {
   return out;
 }
 
+wallet_t* wallet_ctor (const char* const name, const char* const flags, const uint16_t pin) {
+
+  if ( NULL == name || NULL == flags || ! pin) {
+    bank_error(ERR_NULL_STRUCT, true, "", "");
+    return NULL;
+  }
+
+  wallet_t* wallet = safemalloc( sizeof (wallet_t) );
+
+  wallet->name  = strndup(name, safestrnlen(name));
+  wallet->flags = strndup(flags, safestrnlen(flags));
+
+  wallet->creds    = safemalloc(sizeof (transactn_t *) );
+  wallet->creds[0] = NULL;
+
+  wallet->debts    = safemalloc(sizeof (transactn_t *) );
+  wallet->debts[0] = NULL;
+
+  wallet->num       = 0; // change this later
+  wallet->pin       = pin;
+  wallet->is_frozen = false;
+
+  report_ctor(wallet);
+
+  return wallet;
+}
+
+char* wallet_see (const wallet_t* const wlt) {
+  return NULL;
+}
+
 void wallet_dtor (wallet_t* const wallet) {
   safefree_args(3, wallet->name, wallet->flags, wallet);
 }
 
-void wallet_dtorn (wallet_t* * const ws, size_t len) {
+void wallet_dtorn (wallet_t* * const ws, const size_t len) {
   for (size_t i = 0; i < len; i++) {
     wallet_dtor(ws[i]);
   }
