@@ -178,13 +178,14 @@ uint64_t* str_to_ull_array (
         size_t*     out_len
 );
 
-size_t   str_count (const char* const haystack, const char* const needle);
-size_t safestrnlen (const char* const str);
-size_t udifference (const size_t x, const size_t y);
-size_t        usub (const size_t a, const size_t b);
-size_t   signed2un (const ssize_t val);
-ssize_t  un2signed (const  size_t val);
-ssize_t str_issubstring (const char* const a, const char* const b);
+size_t     str_count (const char* const haystack, const char* const needle);
+size_t* str_count_sp (const char* haystack, const char* needles);
+size_t   safestrnlen (const char* const str);
+size_t   udifference (const size_t x, const size_t y);
+size_t          usub (const size_t a, const size_t b);
+size_t     signed2un (const ssize_t val);
+ssize_t    un2signed (const  size_t val);
+ssize_t   str_issubstring (const char* const a, const char* const b);
 
 void free_ptr_array (void** array, const size_t len);
 void      _safefree (void*        ptr, const uint64_t lineno, const char* const fname);
@@ -199,7 +200,7 @@ void*   _safecalloc (const size_t nmemb, const size_t len, uint64_t lineno, cons
 #define saferealloc(p,s) _saferealloc((p), (s), __LINE__, __func__)
 #define safecalloc(n,l)   _safecalloc((n), (l), __LINE__, __func__)
 
-#define alloc(type, count) (type *) safemalloc(sizeof (type) * count)
+#define alloc(type, count) (type *) safecalloc(sizeof (type) * count, sizeof (type))
 
 #define fdredir(fd, file) fd = freopen(file, "w", fd)
 
@@ -214,18 +215,42 @@ ssize_t un2signed (const size_t val) {
 }
 
 #define define_signed2un_type(type, other) \
-  pure const_func \
+  warn_unused pure const_func \
   other signed2un_ ## type ## 2 ## other (const type val) { \
     return val < 0 ? 0 : (other) val; \
   } \
   int __IAMALSONOTHING ## type ## other
 
 #define define_un2signed_type(type, other, type_maxvalue) \
-  pure const_func \
+  warn_unused pure const_func \
   other un2signed_ ## type ## 2 ## other (const type val) { \
     return (other) ((val) > (type_maxvalue / 2) ? (type_maxvalue) / 2 : val) \
   } \
   int __IAMNOTHING ## type ## other
+
+#define define_sum_type(type) \
+  type sum_ ## type ## _array (const type* const arr, const size_t len); \
+  warn_unused pure const_func \
+  type sum_ ## type ## _array (const type* const arr, const size_t len) { \
+    type sum = 0; \
+    for (size_t i = 0; i < len; i++) { sum += arr[i]; } \
+    return sum; \
+  } \
+  int __IDOWONTEXIST ## type
+
+#define define_cmparr_type(type, cmp) \
+  type type ## _max (const type* const arr, const size_t len, size_t* out_idx); \
+  warn_unused pure const_func \
+  type type ## _max (const type* const arr, const size_t len, size_t* out_idx) { \
+    type m = 0; size_t idx; \
+    for (size_t i = 0; i < len; i++) { \
+      if (arr[i] cmp m) { m = arr[i], idx = i; } \
+    } \
+    if (NULL != out_idx) { *out_idx = idx; } \
+    return m; \
+  } \
+  int __IWONTEXIST22 ## type
+
 
 pure const_func
 size_t usub (const size_t a, const size_t b) {
@@ -260,17 +285,7 @@ void _safefree_args (const uint64_t lineno, const char* const fname, const size_
   for (size_t i = 0; i < argc; i++) {
     void* ptr = va_arg(vl, void*);
 
-    if (NULL == ptr) {
-      printf(
-        "You fool! You have tried to free() a null pointer!"
-        " (line %" PRIu64 " func %s, arg #%zu to safefree_args)\n",
-        lineno, fname, i
-      );
-      assert(NULL != ptr);
-    } else {
-      free(ptr);
-    }
-
+    _safefree(ptr, lineno, fname);
   }
 
   va_end(vl);
@@ -439,17 +454,21 @@ ssize_t str_issubstring (const char* const a, const char* const b) {
 char* str_reverse (const char* const str) {
   pfn();
 
-  if (!str) { return NULL; }
+  if ( ! str ) { return NULL; }
 
-  size_t len = safestrnlen(str);
+  size_t len;
 
-  printf("len: %zu\n", len);
+  if ( 1 == ( len = safestrnlen(str) ) ) { return strndup(str, 1); }
 
-  char* newp = (typeof(newp)) safemalloc( sizeof(char) * (len) );
+  char* newp = (typeof(newp)) safemalloc(len * sizeof (char) );
 
-  for (size_t i = 0; i < len; i++) {
-    newp[i] = str[ udifference(i + 1, len) ];
+  size_t i, j;
+  for (i = 0, j = len - 1; i < len; i++, j--) {
+    newp[i] = str[j];
+    //printf("i: %zu, j: %zu, ic: %c, ij: %c\n", i, j, newp[i], str[j]);
   }
+
+  newp[i] = '\0';
 
   return newp;
 }
@@ -510,12 +529,10 @@ char* str_copy (const char* const str) {
   pfn();
 
   size_t len = safestrnlen(str);
+  if ( ! len ) { return make_empty_str(); }
   char* newp = alloc(char, len);
 
-  for (size_t i = 0; i < len; i++) {
-    newp[i] = str[i];
-  }
-  return newp;
+  return (typeof(newp)) memcpy(newp, str, len);
 }
 
 char** str_split (
@@ -550,7 +567,7 @@ char** str_split (
   } else if (1 == num_delim) {
 
     // one separator
-     newp = (typeof(newp)) safemalloc( sizeof (char *) * 2 );
+    newp = (typeof(newp)) safemalloc( sizeof (char *) * 2 );
     size_t i;
     for (
       i = 0;
@@ -581,6 +598,109 @@ char** str_split (
     }
 
     *out_len = i;
+
+  }
+
+  return newp;
+}
+
+define_sum_type(size_t);
+define_cmparr_type(size_t, >);
+
+char* return_1_charp_arg (const char* const arg);
+char* return_1_charp_arg (const char* const arg) {
+  return str_copy(arg);
+}
+
+char** str_split2 (
+  const char*   str,
+  const char*   delims,
+        size_t* out_len,
+  char* (* const c_mapfun) (const char* const)
+);
+char** str_split2 (
+  const char*   str,
+  const char*   delims,
+        size_t* out_len,
+  char* (* const c_mapfun) (const char* const)
+) {
+  pfn();
+
+  if (! str[0] || !str) {
+    errno = EINVAL;
+    return NULL;
+  }
+
+  char* (* const mapfun) (const char* const) =
+    (NULL == c_mapfun)
+    ? return_1_charp_arg
+    : c_mapfun;
+
+
+  char* const scopy = str_copy(str);
+
+  dbg_prn("str: %s\n", scopy);
+
+  const size_t
+          len = safestrnlen(str), dlen = safestrnlen(delims),
+   *num_delim = str_count_sp(str, delims),
+    sum_delim = sum_size_t_array(num_delim, dlen);
+  dbg_prn("l = %zu d = %zu, s = %zu\n", len, dlen, sum_delim);
+
+  for (size_t i = 0; i < dlen; i++) {
+    dbg_prn("%c = %zu\n", delims[i], num_delim[i]);
+  }
+
+  char** newp = alloc(char *, 1);
+
+  if ( 0 == num_delim ) {
+    dbg_prn("0 delims%s", "\n");
+    newp[0] = mapfun(scopy);
+
+    safefree(scopy);
+    if ( NULL != out_len ) {
+      *out_len = 1;
+    }
+
+  } else if ( 1 == sum_delim ) {
+    dbg_prn("1 delim%s", "\n");
+
+    newp = (typeof(newp)) saferealloc(newp, 2);
+    const size_t dist = strcspn(str, delims);
+
+    newp[0] = mapfun( strndup(scopy, dist) );
+    newp[1] = mapfun( strndup(scopy + dist, MAX_STR_LEN) );
+
+    safefree(scopy);
+    if ( NULL != out_len ) {
+      *out_len = 2;
+    }
+
+  } else {
+    dbg_prn("else %zu delims\n", sum_delim);
+
+    size_t *dists = (typeof(dists)) safecalloc(sum_delim, sizeof (size_t));
+
+    for (size_t j = 0; j < sum_delim; j++) {
+
+      size_t* dist2next = (typeof(dist2next)) safecalloc(dlen, sizeof (size_t));
+
+      for (size_t i = 0; i < dlen; i++) {
+        char d_asptr[2];
+        snprintf(d_asptr, 2, "%c", delims[i]);
+
+        dist2next[i] = strcspn( j ? str + (dists [j - 1]) : str , d_asptr);
+        dbg_prn("%c next = %zu\n", delims[i], dist2next[i]);
+      }
+
+      dists[j] = size_t_max(dist2next, dlen, NULL);
+      dbg_prn("dists[j] = %zu\n", dists[j]);
+
+      safefree(dist2next);
+    }
+
+    newp = (typeof(newp)) saferealloc(newp, sizeof (char* ) * sum_delim + 1);
+
 
   }
 
@@ -618,25 +738,50 @@ char*     str_rm (
   return newp;
 }
 
-pure
-size_t str_count (
+const_func size_t str_count (
   const char*   haystack,
   const char*   needles
 ) {
   pfn();
 
   size_t s = 0;
-  size_t len_haystack = safestrnlen(haystack),
-         len_needles = safestrnlen(needles);
+  const size_t
+    len_haystack = safestrnlen(haystack),
+     len_needles = safestrnlen(needles);
 
   for (size_t i = 0; i < len_haystack; i++) {
     for (size_t h = 0; h < len_needles; h++) {
       if (haystack[i] == needles[h]) {
-         s++;
-       }
+        s++;
+      }
     }
   }
   return s;
+}
+
+const_func size_t* str_count_sp (const char* haystack, const char* needles) {
+  pfn();
+
+  const size_t
+    len_haystack = safestrnlen(haystack),
+     len_needles = safestrnlen(needles);
+
+  size_t* cts = alloc(size_t, len_needles);
+
+  if (! (len_haystack * len_needles) ) {
+    goto end;
+  }
+
+  for (size_t i = 0; i < len_haystack; i++) {
+    for (size_t j = 0; j < len_needles; j++) {
+      if (haystack[i] == needles[j]) {
+        cts[j]++;
+      }
+    }
+  }
+
+  end:
+    return cts;
 }
 
 char*  str_repeat (
